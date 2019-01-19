@@ -4,6 +4,7 @@ package com.czd.netty.asyn;
  * @Author changzhendong
  * @Description: 异步的一种实现方式就是 回调
  * @Date: Created in 2019/1/16 19:51.
+ * 回调模式，就是完成后我来通知你
  */
 public class CallableDemo {
 

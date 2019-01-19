@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit;
  * @Author changzhendong
  * @Description:
  * @Date: Created in 2019/1/16 20:15.
+ * future 模式就是预先告知结果存到哪里，你自己去取
  */
 public class FutureDemo {
 	private static ExecutorService executorService = Executors.newCachedThreadPool();
