@@ -29,16 +29,19 @@ public class EchoServer {
 	}
 
 	public void start() throws InterruptedException {
-		EventLoopGroup group = new NioEventLoopGroup();
+		EventLoopGroup bossGroup = new NioEventLoopGroup();
+		EventLoopGroup workerGroup = new NioEventLoopGroup();
+
 		try {
 			// 创建 ServerBootstrap 实例来进行服务引导
 			ServerBootstrap b = new ServerBootstrap();
 			// 规范的 NIO 传输，绑定本地端口
-			b.group(group).channel(NioServerSocketChannel.class).localAddress(port)
+			b.group(bossGroup,workerGroup).channel(NioServerSocketChannel.class).localAddress(port)
 					.childHandler(new ChannelInitializer<Channel>() {
 						@Override
 						protected void initChannel(Channel ch) throws Exception {
 							// 添加处理器到 channel pipeline
+							// 这里是核心，可以给 pipeline 添加不同的 handler 添加顺序决定处理顺序,出站入站，编码解码，业务逻辑
 							ch.pipeline().addLast(new EchoServerHandler());
 						}
 					});
@@ -46,9 +49,12 @@ public class EchoServer {
 			// 绑定服务，并等待服务关闭，然后释放资源
 			ChannelFuture f = b.bind().sync();
 			System.out.println(EchoServer.class.getName() + "started and listen on " + f.channel().localAddress());
+			// 如果这里不阻塞会导致服务端直接退出
 			f.channel().closeFuture().sync();
 		} finally {
-			group.shutdownGracefully().sync();
+			// 优雅退出
+			bossGroup.shutdownGracefully().sync();
+			workerGroup.shutdownGracefully().sync();
 		}
 	}
 
