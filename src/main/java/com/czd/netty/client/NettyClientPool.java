@@ -1,12 +1,15 @@
 package com.czd.netty.client;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 
 /**
@@ -17,7 +20,7 @@ import io.netty.handler.logging.LoggingHandler;
 public class NettyClientPool {
 
 	public static void main(String[] args) throws InterruptedException {
-		initClientPool(1);
+		initClientPool(10);
 	}
 
 	static void initClientPool(int poolSize) throws InterruptedException {
@@ -29,12 +32,25 @@ public class NettyClientPool {
 		.handler(new ChannelInitializer<SocketChannel>() {
 			@Override
 			protected void initChannel(SocketChannel ch) throws Exception {
-				ch.pipeline().addLast(new LoggingHandler());
+				ch.pipeline().addLast(new LoggingHandler(LogLevel.INFO));
+				ch.pipeline().addLast(new ChannelInboundHandlerAdapter(){
+					@Override
+					public void channelActive(ChannelHandlerContext ctx) throws Exception {
+						// 链接活跃完毕之后断掉链接
+						System.out.println("channelActive");
+					}
+
+					@Override
+					public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+						cause.printStackTrace();
+						ctx.close();
+					}
+				});
 			}
 		});
 
 		for (int i = 0; i < poolSize; i++) {
-			bootstrap.connect("127.0.0.1", 18081).sync();
+			bootstrap.connect("127.0.0.1", 65535).sync();
 			// 链接使用完毕会自动关闭，千万不能调用 group.shutdownGracefully()
 		}
 	}

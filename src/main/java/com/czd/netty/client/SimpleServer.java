@@ -32,7 +32,7 @@ public class SimpleServer {
 						p.addLast(new LoggingHandler(LogLevel.INFO));
 					}
 				});
-		ChannelFuture f = b.bind(18081).sync();
+		ChannelFuture f = b.bind(65535).sync();
 		f.channel().closeFuture().addListener(new ChannelFutureListener() {
 			@Override
 			public void operationComplete(ChannelFuture future) throws Exception {
