@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @Description: 使用 NIO 的方式来进行
  * NIO 的事件通知有点坑爹
  * 事件很坑，多留意，多百度吸取家训，这就是为什么要使用 Netty
+ * 其实一定要注意，有什么事件就注册什么时间，然后轮训出来方便做对应的操作
  * @Date: Created in 2019/1/22 20:40.
  */
 public class NioClientPool {
@@ -79,15 +80,16 @@ public class NioClientPool {
 				socketChannel.configureBlocking(false);
 				// 3. 异步连接服务器，异步连接都返回 false
 				boolean connected = socketChannel.connect(new InetSocketAddress("127.0.0.1", 65535));
-				// 打开多路复用器
+				// 4. 判断连接结果 打开多路复用器
 				if (connected) {
 					// 连接成功 10. 注册读事件 这里肯定不会走到
 					System.out.println(Thread.currentThread().getName() + " 直接建立成功>isConnectable");
 					socketChannel.register(selector, SelectionKey.OP_READ);
 				} else {
 					// 连接失败注册连接事件
-					socketChannel.register(selector, SelectionKey.OP_CONNECT | SelectionKey.OP_READ
-					| SelectionKey.OP_WRITE);
+					// 5. 注册监听时间
+					socketChannel.register(selector, SelectionKey.OP_CONNECT);
+					// 其实就可以开线程做读操作了
 					start:
 					while (true) {
 						int num = selector.select();
@@ -113,6 +115,9 @@ public class NioClientPool {
 											System.out.println(Thread.currentThread().getName()+"do it");
 											Thread.sleep(1000);
 										}
+										// 10. 注册读事件
+										// socketChannel.register(selector, SelectionKey.OP_READ，ioHandler);
+
 										break start;
 									} else {
 										throw new RuntimeException("连接失败");
@@ -124,6 +129,19 @@ public class NioClientPool {
 							}
 							else if (key.isReadable()) {
 								System.out.println(Thread.currentThread().getName() + "isReadable");
+								// 11. 对读的数据进行操作
+								// channel.read(buffer)
+								SocketChannel sc = (SocketChannel)key.channel();
+								ByteBuffer buffer = ByteBuffer.allocate(1024);
+								sc.write(buffer);
+								while (buffer.hasRemaining()) {
+									buffer.mark();
+									// 编码 buffer
+									// 然后获取到编码后的buffer
+								}
+								// clear buffer 或者 compact
+								// 再去处理 总共的 buffer
+
 							}
 							else if (key.isWritable()) {
 								System.out.println(Thread.currentThread().getName() + "isWritable");
