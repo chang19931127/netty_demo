@@ -2,90 +2,142 @@ package com.czd.netty.client;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @Author changzhendong
  * @Description: 使用 NIO 的方式来进行
+ * NIO 的事件通知有点坑爹
+ * 事件很坑，多留意，多百度吸取家训，这就是为什么要使用 Netty
  * @Date: Created in 2019/1/22 20:40.
  */
 public class NioClientPool {
 
-	private static final int BUFFER_SIZE = 1024;
 	private static Selector selector;
 
-	public static void main(String[] args) throws IOException {
-		initClientPool(10);
+	static {
+		try {
+			selector = Selector.open();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 	}
 
-	static void initClientPool(int poolSize) throws IOException {
-		// 1. 打开 SocketChannel
-		SocketChannel socketChannel = SocketChannel.open();
-		// 2. 设置成非阻塞并且设置 Socket 的相关参数
-		socketChannel.configureBlocking(false);
-		socketChannel.socket().setReuseAddress(true);
-		socketChannel.socket().setReceiveBufferSize(BUFFER_SIZE);
-		socketChannel.socket().setSendBufferSize(BUFFER_SIZE);
-		// 3. 异步连接服务器，异步连接都返回 false
-		boolean connected = socketChannel.connect(new InetSocketAddress("127.0.0.1", 18081));
-		// 打开多路复用器
-		selector = Selector.open();
-		if (connected) {
-			// 连接成功 10. 注册读事件
-			socketChannel.register(selector, SelectionKey.OP_READ);
-		} else {
-			// 连接失败注册连接事件
-			socketChannel.register(selector, SelectionKey.OP_CONNECT | SelectionKey.OP_READ);
-			while (true) {
-				int num = selector.select();
-				if (num == 0) {
-					continue;
-				}
-				Set<SelectionKey> selectionKeys = selector.selectedKeys();
-				Iterator iterator = selectionKeys.iterator();
-				while (iterator.hasNext()) {
-					SelectionKey key = (SelectionKey) iterator.next();
-					if (key.isAcceptable()) {
-						// handlerConnect()
-						System.out.println("isAcceptable");
-					}
-					if (key.isConnectable()) {
-						System.out.println("isConnectable");
-					}
-					if (key.isReadable()) {
-						System.out.println("isReadable");
-					}
-					if (key.isWritable()) {
-						System.out.println("isWritable");
-					}
-				}
+	// 线程池自己根据需求写参数肯定可配,然后线程池工厂抽离出来
+	private static ExecutorService threadPool = new ThreadPoolExecutor(4,
+			4,
+			0,
+			TimeUnit.MILLISECONDS, new LinkedBlockingQueue<Runnable>(), new ThreadFactory() {
+		private final AtomicInteger threadNumber = new AtomicInteger(1);
+
+		@Override
+		public Thread newThread(Runnable r) {
+			Thread t = new Thread(r, "我的专属-" + threadNumber.getAndIncrement());
+			if (t.isDaemon()) {
+				t.setDaemon(true);
 			}
+			if (t.getPriority() != Thread.NORM_PRIORITY) {
+				t.setPriority(Thread.NORM_PRIORITY);
+			}
+			return t;
+		}
+
+	});
+
+	public static void main(String[] args) throws IOException {
+		Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+			@Override
+			public void uncaughtException(Thread t, Throwable e) {
+				System.out.println("caught    "+e);
+			}
+		});
+		for (int i = 0; i < 20; i++) {
+			threadPool.execute(new ReactorTask());
 		}
 	}
 
 	static class ReactorTask implements Runnable {
 		@Override
 		public void run() {
+			System.out.println(Thread.currentThread().getName() + "开始执行");
 			try {
-				for (;;) {
-					int num = selector.select();
-					Set<SelectionKey> selectionKeys = selector.selectedKeys();
-					Iterator iterator = selectionKeys.iterator();
-					while (iterator.hasNext()) {
-						SelectionKey key = (SelectionKey) iterator.next();
-						if (key.isConnectable()) {
-							// handlerConnect()
+				// 1. 打开 SocketChannel
+				SocketChannel socketChannel = SocketChannel.open();
+				// 2. 设置成非阻塞并且设置 Socket 的相关参数
+				socketChannel.configureBlocking(false);
+				// 3. 异步连接服务器，异步连接都返回 false
+				boolean connected = socketChannel.connect(new InetSocketAddress("127.0.0.1", 65535));
+				// 打开多路复用器
+				if (connected) {
+					// 连接成功 10. 注册读事件 这里肯定不会走到
+					System.out.println(Thread.currentThread().getName() + " 直接建立成功>isConnectable");
+					socketChannel.register(selector, SelectionKey.OP_READ);
+				} else {
+					// 连接失败注册连接事件
+					socketChannel.register(selector, SelectionKey.OP_CONNECT | SelectionKey.OP_READ
+					| SelectionKey.OP_WRITE);
+					start:
+					while (true) {
+						int num = selector.select();
+						if (num == 0) {
+							continue;
+						}
+						Set<SelectionKey> selectionKeys = selector.selectedKeys();
+						Iterator iterator = selectionKeys.iterator();
+						while (iterator.hasNext()) {
+							SelectionKey key = (SelectionKey) iterator.next();
+							if (key.isAcceptable()) {
+								// handlerConnect()
+								System.out.println(Thread.currentThread().getName() + "isAcceptable");
+							}
+							// 这个事件会在链接成功和失败的时候响应
+							if (key.isConnectable()) {
+								System.out.println(Thread.currentThread().getName() + "isConnectable");
+								if (key.isValid() && key.isConnectable()) {
+									SocketChannel sc = (SocketChannel)key.channel();
+									if (sc.finishConnect()) {
+										System.out.println(Thread.currentThread().getName() + "isConnectable success");
+										for (int i = 0; i < 10; i++) {
+											System.out.println(Thread.currentThread().getName()+"do it");
+											Thread.sleep(1000);
+										}
+										break start;
+									} else {
+										throw new RuntimeException("连接失败");
+									}
+								} else {
+									throw new RuntimeException("连接失败");
+								}
+
+							}
+							else if (key.isReadable()) {
+								System.out.println(Thread.currentThread().getName() + "isReadable");
+							}
+							else if (key.isWritable()) {
+								System.out.println(Thread.currentThread().getName() + "isWritable");
+							}
 						}
 					}
 				}
-			} catch (IOException e) {
-				e.printStackTrace();
+				System.out.println(Thread.currentThread().getName() + "结束");
+			} catch (Exception e) {
+				System.out.println("出现异常信息" + e);
 			}
 		}
 	}
+
+
 
 }
